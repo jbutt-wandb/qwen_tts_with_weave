@@ -22,6 +22,11 @@ Text-to-speech experimentation using Qwen3-TTS models with Weave observability.
 uv sync
 ```
 
+2. Install the qwen-tts library via pip:
+```bash
+uv pip install -U qwen-tts
+```
+
 2. Copy `.env_example` to `.env` and add your API keys:
 ```bash
 cp .env_example .env

@@ -4,15 +4,16 @@ Text-to-speech experimentation using Qwen3-TTS models with Weave observability.
 
 ## Features
 
-- **Voice Cloning**: Clone voices from reference audio samples
-- **Voice Design**: Generate speech with custom voice characteristics using text descriptions
-- **Experiment Tracking**: Track TTS experiments and outputs with Weave
+- **Voice Design**: Generate speech with custom voice characteristics from a natural-language description
+- **Voice Cloning**: Clone voices from a reference audio clip
+- **Marimo UI**: One interactive app that exposes both flows side-by-side
+- **Experiment Tracking**: Every generation is wrapped with `@weave.op` and shows up as a trace in your Weave project
 
 ## Requirements
 
 - Python >=3.12
 - HuggingFace account with access to Qwen3-TTS models
-- OpenAI API key (for audio transcription in voice cloning)
+- OpenAI API key (for `gpt-4o-transcribe` in voice cloning)
 - Weights & Biases account (for Weave)
 
 ## Setup
@@ -27,26 +28,53 @@ uv sync
 uv pip install -U qwen-tts
 ```
 
-2. Copy `.env_example` to `.env` and add your API keys:
+3. Copy `.env_example` to `.env` and add your API keys:
 ```bash
 cp .env_example .env
 ```
 
 Required environment variables:
-- `HUGGINGFACEHUB_API_TOKEN`: HuggingFace API token
-- `OPENAI_API_KEY`: OpenAI API key
-- `WANDB_ACCOUNT`: Your Weights & Biases account name
-- `WEAVE_PROJECT`: Your Weave project name
+- `HUGGINGFACEHUB_API_TOKEN` — HuggingFace API token (must have access to the Qwen3-TTS models)
+- `OPENAI_API_KEY` — OpenAI API key
+- `WANDB_ACCOUNT` — your Weights & Biases account name
+- `WEAVE_PROJECT` — your Weave project name
 
 ## Usage
 
-### Voice Cloning
+### Marimo app (recommended)
 
-Open `voice_clone_weave.ipynb` to clone voices from reference audio. Place reference audio files in `audio/input/` and run the notebook to generate cloned speech with different text.
+`app.py` is a single-file [marimo](https://marimo.io) notebook that wraps both flows into one UI. Launch it from the repo root:
 
-### Voice Design
+```bash
+# Interactive editor (lets you change cells, inspect state, etc.)
+uv run marimo edit app.py
 
-Open `voice_design_weave.ipynb` to generate speech with custom voice characteristics. Describe the desired voice (e.g., "playful, mature female voice") and the model will synthesize matching audio.
+# Read-only "app" view (no cell editing)
+uv run marimo run app.py
+```
+
+The first generation in each tab triggers a one-time download/load of the corresponding 1.7B Qwen3-TTS model (slow); every subsequent generation in the same session is fast.
+
+#### Voice Design tab
+
+Type the target text and a natural-language voice description, pick a language, and click **Generate voice design**. Output is saved to `audio/designed_audio/generated_audio.wav` and played inline.
+
+![Voice Design tab](docs/screenshots/voice_design.png)
+
+#### Voice Cloning tab
+
+Drag a reference audio clip into the upload area, type the target text, and click **Clone voice**. By default the reference clip is transcribed automatically with `gpt-4o-transcribe`; uncheck the box to paste your own transcript instead. Output is saved to `audio/cloned_audio/generated_cloned_audio.wav` and played inline.
+
+![Voice Cloning tab](docs/screenshots/voice_cloning.png)
+
+### Original notebooks
+
+The two Jupyter notebooks the marimo app was built from are still in the repo for reference and ad-hoc experimentation:
+
+- `voice_design_weave.ipynb` — voice design with the `VoiceDesign` model
+- `voice_clone_weave.ipynb` — voice cloning with the `Base` model
+
+They share the same `@weave.op` function names as the marimo app, so traces from notebooks and the app are interchangeable in the Weave UI.
 
 ## Models
 
@@ -57,4 +85,4 @@ The project uses two Qwen3-TTS model types:
 Models are automatically downloaded from HuggingFace on first use.
 
 ## Weave Project
-To see the Weave project to see traces check this [project](https://wandb.ai/wandb_emea/jb_qwen_tts_weave/weave/traces?view=traces_2026-02-02_21-56-32-535).
+To see the Weave project to see traces check this [project](https://wandb.ai/wandb-smle/jb_qwen_tts/weave/traces).

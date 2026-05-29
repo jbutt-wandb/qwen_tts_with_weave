@@ -7,7 +7,7 @@ Text-to-speech experimentation using Qwen3-TTS models with Weave observability.
 - **Voice Design**: Generate speech with custom voice characteristics from a natural-language description
 - **Voice Cloning**: Clone voices from a reference audio clip
 - **Marimo UI**: One interactive app that exposes both flows side-by-side
-- **Experiment Tracking**: Every generation is wrapped with `@weave.op` and shows up as a trace in your Weave project
+- **Experiment Tracking**: Every generation is wrapped with `@weave.op` and shows up as a trace in your Weave project. This is mandatory so we will require an output project and account as environment variables.
 
 ## Requirements
 

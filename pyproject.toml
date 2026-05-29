@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "ipykernel>=7.1.0",
     "ipywidgets>=8.1.8",
+    "marimo>=0.23.8",
     "openai>=2.16.0",
     "python-dotenv>=1.2.1",
     "weave>=0.52.26",

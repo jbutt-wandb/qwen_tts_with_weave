@@ -16,3 +16,7 @@ wheels/
 
 scratchpad.ipynb
 qwen_tts_intro.ipynb
+
+__marimo__
+audio/input/harrison_web_on_traces.wav
+audio/input/_uploaded.wav

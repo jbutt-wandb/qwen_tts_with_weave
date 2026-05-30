@@ -272,7 +272,51 @@ def _(mo):
 
 
 @app.cell
-def _(design_instruct, design_language, design_run, design_text, mo):
+def _(
+    design_instruct,
+    design_language,
+    design_run,
+    design_text,
+    generate_voice_design,
+    get_voice_design_model,
+    mo,
+):
+    if design_run.value:
+        print("[design] Stage 1/3: Loading VoiceDesign model (first run only, may take minutes)...")
+        with mo.status.spinner(
+            title="Generating designed audio",
+            subtitle="Stage 1/3 — Loading VoiceDesign model (first run only, may take minutes)...",
+        ) as _sp:
+            get_voice_design_model()
+
+            print("[design] Stage 2/3: Synthesizing speech...")
+            _sp.update(subtitle="Stage 2/3 — Synthesizing speech...")
+            design_result = generate_voice_design(
+                design_text.value, design_language.value, design_instruct.value
+            )
+
+            print("[design] Stage 3/3: Writing WAV to audio/designed_audio/...")
+            _sp.update(subtitle="Stage 3/3 — Writing WAV to disk...")
+
+        if isinstance(design_result, tuple) and design_result[0] is None:
+            print(f"[design] FAILED: {design_result[1]}")
+            design_output = mo.callout(mo.md(f"**{design_result[1]}**"), kind="danger")
+        else:
+            print("[design] Done — audio saved to audio/designed_audio/generated_audio.wav")
+            design_output = mo.vstack(
+                [
+                    mo.md("### 🎧 Generated audio"),
+                    mo.audio("audio/designed_audio/generated_audio.wav"),
+                    mo.md("_Saved to `audio/designed_audio/generated_audio.wav`._"),
+                ]
+            )
+    else:
+        design_output = mo.md("")
+    return (design_output,)
+
+
+@app.cell
+def _(design_instruct, design_language, design_output, design_run, design_text, mo):
     design_panel = mo.vstack(
         [
             mo.md("#### What should the voice say, and what should it sound like?"),
@@ -280,6 +324,8 @@ def _(design_instruct, design_language, design_run, design_text, mo):
             design_instruct,
             design_language,
             design_run,
+            mo.md("---"),
+            design_output,
         ]
     )
     return (design_panel,)
@@ -368,95 +414,6 @@ def _(mo):
         clone_run,
         clone_target,
     )
-
-
-@app.cell
-def _(
-    clone_autotranscribe,
-    clone_max_tokens,
-    clone_ref_text,
-    clone_run,
-    clone_target,
-    clone_upload,
-    mo,
-    ref_preview,
-):
-    _items = [
-        mo.md("#### Reference audio"),
-        clone_upload,
-        ref_preview,
-        mo.md("---"),
-        mo.md("#### Target text"),
-        clone_target,
-        mo.md("#### Reference-text options"),
-        clone_autotranscribe,
-    ]
-    if not clone_autotranscribe.value:
-        _items.append(clone_ref_text)
-    _items += [
-        mo.md("#### Generation options"),
-        clone_max_tokens,
-        clone_run,
-    ]
-    clone_panel = mo.vstack(_items)
-    return (clone_panel,)
-
-
-# ─── Tabs ────────────────────────────────────────────────────────────────────
-
-
-@app.cell
-def _(clone_panel, design_panel, mo):
-    mo.ui.tabs({"Voice Design": design_panel, "Voice Cloning": clone_panel})
-    return
-
-
-# ─── Work cells (render below the tabs so the spinner is visible) ────────────
-
-
-@app.cell
-def _(
-    design_instruct,
-    design_language,
-    design_run,
-    design_text,
-    generate_voice_design,
-    get_voice_design_model,
-    mo,
-):
-    if design_run.value:
-        print("[design] Stage 1/3: Loading VoiceDesign model (first run only, may take minutes)...")
-        with mo.status.spinner(
-            title="Generating designed audio",
-            subtitle="Stage 1/3 — Loading VoiceDesign model (first run only, may take minutes)...",
-        ) as _sp:
-            get_voice_design_model()
-
-            print("[design] Stage 2/3: Synthesizing speech...")
-            _sp.update(subtitle="Stage 2/3 — Synthesizing speech...")
-            design_result = generate_voice_design(
-                design_text.value, design_language.value, design_instruct.value
-            )
-
-            print("[design] Stage 3/3: Writing WAV to audio/designed_audio/...")
-            _sp.update(subtitle="Stage 3/3 — Writing WAV to disk...")
-
-        if isinstance(design_result, tuple) and design_result[0] is None:
-            print(f"[design] FAILED: {design_result[1]}")
-            design_output = mo.callout(mo.md(f"**{design_result[1]}**"), kind="danger")
-        else:
-            print("[design] Done — audio saved to audio/designed_audio/generated_audio.wav")
-            design_output = mo.vstack(
-                [
-                    mo.md("### 🎧 Generated audio"),
-                    mo.audio("audio/designed_audio/generated_audio.wav"),
-                    mo.md("_Saved to `audio/designed_audio/generated_audio.wav`._"),
-                ]
-            )
-    else:
-        design_output = mo.md("")
-    design_output
-    return
 
 
 @app.cell
@@ -557,7 +514,50 @@ def _(
                 )
     else:
         clone_output = mo.md("")
-    clone_output
+    return (clone_output,)
+
+
+@app.cell
+def _(
+    clone_autotranscribe,
+    clone_max_tokens,
+    clone_output,
+    clone_ref_text,
+    clone_run,
+    clone_target,
+    clone_upload,
+    mo,
+    ref_preview,
+):
+    _items = [
+        mo.md("#### Reference audio"),
+        clone_upload,
+        ref_preview,
+        mo.md("---"),
+        mo.md("#### Target text"),
+        clone_target,
+        mo.md("#### Reference-text options"),
+        clone_autotranscribe,
+    ]
+    if not clone_autotranscribe.value:
+        _items.append(clone_ref_text)
+    _items += [
+        mo.md("#### Generation options"),
+        clone_max_tokens,
+        clone_run,
+        mo.md("---"),
+        clone_output,
+    ]
+    clone_panel = mo.vstack(_items)
+    return (clone_panel,)
+
+
+# ─── Tabs ────────────────────────────────────────────────────────────────────
+
+
+@app.cell
+def _(clone_panel, design_panel, mo):
+    mo.ui.tabs({"Voice Design": design_panel, "Voice Cloning": clone_panel})
     return
 
 

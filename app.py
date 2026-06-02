@@ -134,9 +134,9 @@ def _(design_instruct, design_language, design_output, design_run, design_text, 
 @app.cell
 def _(mo):
     clone_upload = mo.ui.file(
-        filetypes=[".wav", ".opus", ".mp3", ".flac", ".m4a"],
+        filetypes=[".wav"],
         kind="area",
-        label="Upload your reference clip",
+        label="Upload your reference clip (.wav only)",
     )
     return (clone_upload,)
 

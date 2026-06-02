@@ -5,7 +5,7 @@ Text-to-speech experimentation using Qwen3-TTS models, with optional Weave obser
 ## Features
 
 - **Voice Design**: Generate speech with custom voice characteristics from a natural-language description
-- **Voice Cloning**: Clone voices from a reference audio clip
+- **Voice Cloning**: Clone voices from a reference audio clip, with **prompt caching** so consecutive clones of the same reference skip Whisper transcription and speaker-embedding encoding (see [Voice clone prompt cache](#voice-clone-prompt-cache))
 - **Marimo UI**: One interactive app that exposes both flows side-by-side
 - **Experiment Tracking (optional)**: Every generation is wrapped with `@weave.op`. Enable Weave to log each run as a trace in your Weave project, or run fully private — see the [Weave tracing toggle](#weave-tracing-toggle) section.
 
@@ -81,7 +81,15 @@ Type the target text and a natural-language voice description, pick a language, 
 
 Drag a reference audio clip into the upload area, type the target text, and click **Clone voice**. By default the reference clip is transcribed automatically with local Whisper (`openai/whisper-small`); uncheck the box to paste your own transcript instead. Output is saved to `audio/cloned_audio/generated_cloned_audio.wav` and played inline.
 
+> **Audio format:** only **`.wav`** reference clips are presently supported. Other formats (`.mp3`, `.opus`, `.flac`, `.m4a`) may fail inside the Qwen3-TTS prompt builder or the Weave trace renderer. Convert to WAV first if you have something else.
+
 ![Voice Cloning tab](docs/screenshots/voice_cloning.png)
+
+#### Voice clone prompt cache
+
+The first clone against a given reference clip runs the full pipeline: Whisper transcription → speaker-embedding encoding (`create_voice_clone_prompt`) → generation. Both intermediate results are then cached on the model instance, keyed by the **sha256 of the reference-audio bytes** (not the path — the marimo upload widget overwrites a stable destination path on every upload, so path-based caching would silently reuse the wrong speaker).
+
+Subsequent clones of the same reference with different target text skip transcription and prompt building entirely; only generation runs. Switch references (different file contents) and the cache invalidates automatically. Cache invalidation is observable in the Weave trace tree: on a hit, the `transcribe_audio_from_file` and `build_voice_clone_prompt` child ops are absent under `VoiceClone`; on a miss, both fire. Each `predict` call also prints `[VoiceClone] Cache HIT …` or `Cache MISS …` to stdout with a short content-hash prefix so you can eyeball reference identity at a glance.
 
 ### Notebooks
 

@@ -5,13 +5,12 @@ Canonical source of truth — the notebooks keep their own copies for self-conta
 
 from __future__ import annotations
 
-import datetime
+import hashlib
 import os
 import wave
 from pathlib import Path
 from typing import Any
 
-import librosa
 import torch
 import weave
 from huggingface_hub import snapshot_download
@@ -19,7 +18,7 @@ from pydantic import PrivateAttr
 from qwen_tts import Qwen3TTSModel
 from weave import Model
 
-from .audio import normalize_audio, transcribe_audio_from_file, write_sound_to_file
+from .audio import transcribe_audio_from_file, write_sound_to_file
 
 
 def drop_audio_array(output):
@@ -104,16 +103,25 @@ class VoiceDesignModel(Model):
 class VoiceCloneModel(Model):
     """Qwen3-TTS Base head (voice cloning) wrapped as a Weave Model.
 
-    Differs from the notebook copy by exposing an optional `ref_text` parameter
-    on `predict`: when None (the default), the reference is auto-transcribed via
-    `transcribe_audio_from_file`; when a string is supplied, that's used as the
-    reference transcript directly (no transcribe op fires).
+    Uses a single-slot cache keyed by sha256 of the reference-audio bytes:
+    consecutive clones of the same reference skip both Whisper transcription
+    and speaker-embedding encoding. Content-hashed (not path-keyed) because
+    the marimo upload flow overwrites a stable path (`audio/input/_uploaded.{ext}`)
+    on every upload — path alone can't distinguish references.
+
+    `predict` accepts an optional `ref_text`: when None (default), the reference
+    is auto-transcribed; when a string is supplied, that's the reference transcript
+    directly.
     """
 
     model_size: str = "1.7B"
     model_type: str = "Base"
 
     _qwen_model: Any = PrivateAttr(default=None)
+
+    _cache_key: Any = PrivateAttr(default=None)         # (content_sha256, ref_text_arg)
+    _cached_transcript: Any = PrivateAttr(default=None) # str — auto-transcribed or override
+    _cached_prompt: Any = PrivateAttr(default=None)     # list of prompt_items
 
     def _get_model_path(self, model_type: str, model_size: str) -> str:
         return snapshot_download(f"Qwen/Qwen3-TTS-12Hz-{model_size}-{model_type}")
@@ -131,35 +139,22 @@ class VoiceCloneModel(Model):
             )
         return self._qwen_model
 
-    def generate_voice_clone(self, ref_audio, ref_text, target_text, max_new_tokens=2048):
-        if not target_text or not target_text.strip():
-            return None, "Error: Target text is required."
-        if ref_audio is None:
-            return None, "Error: Reference audio is required."
-        if not ref_text or not ref_text.strip():
-            return None, "Error: Reference text is required."
+    def _audio_content_key(self, input_audio: str) -> str:
+        """Fingerprint the reference audio by hashing its raw bytes."""
+        return hashlib.sha256(Path(input_audio).read_bytes()).hexdigest()
 
-        try:
-            wavs, sr = self._ensure_loaded().generate_voice_clone(
-                text=target_text.strip(),
-                language="Auto",
-                ref_audio=ref_audio,
-                ref_text=ref_text.strip(),
-                x_vector_only_mode=False,
-                max_new_tokens=max_new_tokens,
-            )
-            out_dir = Path("./audio/cloned_audio/")
-            out_dir.mkdir(parents=True, exist_ok=True)
-            output_filename = out_dir / "generated_cloned_audio.wav"
-            write_sound_to_file(output_filename, wavs[0], sr)
-        except Exception as e:
-            return None, f"Error: {type(e).__name__}: {e}"
-
-        return {
-            "generated_audio": wave.open(str(output_filename), "rb"),
-            "sample_rate": sr,
-            "audio_array": wavs[0],
-        }
+    @weave.op(
+        call_display_name="build_voice_clone_prompt",
+        postprocess_inputs=open_input_audio_for_trace,
+    )
+    def _build_voice_clone_prompt(self, input_audio: str, ref_text: str):
+        """Encode the reference clip into prompt_items. Its own @weave.op so
+        cache hits/misses are visible in the trace tree."""
+        return self._ensure_loaded().create_voice_clone_prompt(
+            ref_audio=input_audio,
+            ref_text=ref_text,
+            x_vector_only_mode=False,
+        )
 
     @weave.op(
         call_display_name="VoiceClone",
@@ -172,17 +167,61 @@ class VoiceCloneModel(Model):
         target_text: str,
         max_new_tokens: int = 2048,
         ref_text: str | None = None,
+        **kwargs,
     ):
-        # Auto-transcribe only when no override is supplied (nested @weave.op call).
-        if ref_text is None:
-            ref_text = transcribe_audio_from_file(input_audio).strip()
+        if not target_text or not target_text.strip():
+            return None, "Error: Target text is required."
 
-        audio_data, sample_rate = librosa.load(input_audio, sr=None)
-        ref_audio = (normalize_audio(audio_data), sample_rate)
+        content_hash = self._audio_content_key(input_audio)
+        cache_key = (content_hash, ref_text)
 
-        return self.generate_voice_clone(
-            ref_audio=ref_audio,
-            ref_text=ref_text,
-            target_text=target_text,
-            max_new_tokens=max_new_tokens,
-        )
+        if self._cache_key == cache_key:
+            print(
+                f"[VoiceClone] Cache HIT for {input_audio!r} "
+                f"(content={content_hash[:12]}…, ref_text={'override' if ref_text else 'auto'}). "
+                "Reusing cached transcript + voice-clone prompt."
+            )
+            transcript = self._cached_transcript
+            prompt = self._cached_prompt
+        else:
+            print(
+                f"[VoiceClone] Cache MISS for {input_audio!r} "
+                f"(content={content_hash[:12]}…, ref_text={'override' if ref_text else 'auto'})."
+            )
+            if ref_text is None:
+                print("[VoiceClone]   → Transcribing reference audio with Whisper…")
+                transcript = transcribe_audio_from_file(input_audio).strip()
+            else:
+                print("[VoiceClone]   → Using caller-supplied reference transcript.")
+                transcript = ref_text.strip()
+            print("[VoiceClone]   → Building voice-clone prompt (encoding speaker embedding)…")
+            prompt = self._build_voice_clone_prompt(input_audio, transcript)
+            self._cache_key = cache_key
+            self._cached_transcript = transcript
+            self._cached_prompt = prompt
+            print("[VoiceClone]   → Cache populated.")
+
+        print("[VoiceClone] Generating target audio…")
+        try:
+            wavs, sr = self._ensure_loaded().generate_voice_clone(
+                text=[target_text.strip()],
+                language=["Auto"],
+                voice_clone_prompt=prompt,
+                x_vector_only_mode=[False],
+                max_new_tokens=max_new_tokens,
+                **kwargs,
+            )
+        except Exception as e:
+            return None, f"Error: {type(e).__name__}: {e}"
+
+        out_dir = Path("./audio/cloned_audio/")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        output_filename = out_dir / "generated_cloned_audio.wav"
+        write_sound_to_file(output_filename, wavs[0], sr)
+        print(f"[VoiceClone] Generation complete → {output_filename}")
+
+        return {
+            "generated_audio": wave.open(str(output_filename), "rb"),
+            "sample_rate": sr,
+            "audio_array": wavs[0],
+        }

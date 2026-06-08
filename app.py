@@ -41,7 +41,10 @@ def _():
     voice_design = VoiceDesignModel()
     voice_clone = VoiceCloneModel()
 
+    MAX_REFERENCE_DURATION_S = 20.0
+
     return (
+        MAX_REFERENCE_DURATION_S,
         Path,
         run_clone,
         run_design,
@@ -142,21 +145,43 @@ def _(mo):
 
 
 @app.cell
-def _(Path, clone_upload):
+def _(MAX_REFERENCE_DURATION_S, Path, clone_upload):
+    import io
+
+    import soundfile as sf
+
     ref_path = None
+    upload_error = None
     if clone_upload.value:
         _u = clone_upload.value[0]
         _ext = Path(_u.name).suffix or ".wav"
-        _out = Path("audio/input") / f"_uploaded{_ext}"
-        _out.parent.mkdir(parents=True, exist_ok=True)
-        _out.write_bytes(_u.contents)
-        ref_path = str(_out)
-    return (ref_path,)
+
+        try:
+            _info = sf.info(io.BytesIO(_u.contents))
+            _duration_s = _info.frames / _info.samplerate
+        except Exception as _e:
+            _duration_s = None
+            upload_error = f"Could not read `{_u.name}` as a WAV file ({_e})."
+
+        if _duration_s is not None and _duration_s > MAX_REFERENCE_DURATION_S:
+            upload_error = (
+                f"Reference clip is {_duration_s:.1f}s, longer than the "
+                f"{MAX_REFERENCE_DURATION_S:.0f}s limit. Trim it and re-upload."
+            )
+        elif _duration_s is not None:
+            _out = Path("audio/input") / f"_uploaded{_ext}"
+            _out.parent.mkdir(parents=True, exist_ok=True)
+            _out.write_bytes(_u.contents)
+            ref_path = str(_out)
+
+    return ref_path, upload_error
 
 
 @app.cell
-def _(mo, ref_path):
-    if ref_path:
+def _(mo, ref_path, upload_error):
+    if upload_error:
+        ref_preview = mo.callout(mo.md(upload_error), kind="danger")
+    elif ref_path:
         ref_preview = mo.vstack(
             [
                 mo.md(f"**Reference:** `{ref_path}`"),

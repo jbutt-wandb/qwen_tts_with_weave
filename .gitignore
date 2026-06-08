@@ -16,6 +16,11 @@ wheels/
 
 scratchpad.ipynb
 qwen_tts_intro.ipynb
+finetuning_notes.md
+finetuning_walkthrough.ipynb
+finetuning_workdir/
+qwen3_tts_explainer.md
+finetuning_script_explainer.md
 
 __marimo__
 audio/input/harrison_web_on_traces.wav*
